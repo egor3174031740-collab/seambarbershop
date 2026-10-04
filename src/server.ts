@@ -15,6 +15,10 @@ function json(res: any, status: number, data: any) {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'content-type, x-telegram-init-data',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    // Разрешаем Telegram открывать наше приложение внутри своего iframe
+    'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
   });
   res.end(JSON.stringify(data));
 }
@@ -30,13 +34,25 @@ function user(req: any) {
 }
 
 function okPath(p: string) {
-  return p.replace(/\/+$/, '') || '/';
+  return p.replace(/\/+\$/, '') || '/';
 }
 
 async function handler(req: any, res: any) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const path = okPath(url.pathname);
+
+    // Обработка предварительных CORS-запросов (Preflight)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-headers': 'content-type, x-telegram-init-data',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
+      });
+      res.end();
+      return;
+    }
 
     if (req.method === 'GET' && path === '/health') {
       return json(res, 200, { ok: true });
@@ -67,7 +83,7 @@ async function handler(req: any, res: any) {
         const date = url.searchParams.get('date') || '';
         const ss = await services();
         const s = (ss as any[]).find((x) => x.id === serviceId);
-        if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        if (!s || !/^\d{4}-\d{2}-\d{2}\$/.test(date)) {
           return json(res, 400, { error: 'bad_request' });
         }
         return json(res, 200, { slots: await slotsFor(masterId, date, s.duration) });
@@ -93,7 +109,7 @@ async function handler(req: any, res: any) {
         return json(res, 200, { booking: r });
       }
 
-      const m = path.match(/^\/api\/bookings\/(\d+)\/cancel$/);
+      const m = path.match(/^\/api\/bookings\/(\d+)\/cancel\$/);
       if (req.method === 'POST' && m) {
         return json(res, 200, { ok: await cancel(Number(m[1]), u.id) });
       }
@@ -112,7 +128,13 @@ async function handler(req: any, res: any) {
         '.css': 'text/css; charset=utf-8',
         '.json': 'application/json',
       };
-      res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream' });
+      
+      // Отдаем статические файлы со специальными заголовками встраивания для Telegram
+      res.writeHead(200, { 
+        'content-type': types[ext] || 'application/octet-stream',
+        'access-control-allow-origin': '*',
+        'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
+      });
       res.end(data);
       return;
     }
