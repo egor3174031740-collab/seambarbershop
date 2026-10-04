@@ -66,7 +66,7 @@ async function handler(req: any, res: any) {
         return json(res, 401, { error: 'unauthorized' });
       }
       const update = await body(req);
-      await bot.handleUpdate(update);
+      await bot.handleUpdate(update); // Теперь тут падать не будет
       return json(res, 200, { ok: true });
     }
 
@@ -91,7 +91,6 @@ async function handler(req: any, res: any) {
         return json(res, 200, { slots: await slotsFor(masterId, date, s.duration) });
       }
 
-      // Безопасный перехват ошибок авторизации ТГ для API-путей
       let u;
       try {
         u = user(req);
@@ -147,7 +146,6 @@ async function handler(req: any, res: any) {
         res.end(data);
         return;
       } catch (fileError: any) {
-        // Если файла нет (например, favicon.ico), отдаем аккуратный 404 и не валим сервер
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('Not Found');
         return;
@@ -171,8 +169,13 @@ server.listen(port, '0.0.0.0', async () => {
   console.log(`Web app listening on ${port}`);
   
   try {
+    // Инициализация базы данных
     await initDb();
     console.log("Database initialized successfully");
+
+    // ИСПРАВЛЕНИЕ: Обязательно инициализируем информацию о боте перед вебхуками!
+    await bot.init();
+    console.log(`Bot initialized successfully: @${bot.botInfo.username}`);
 
     const webhookUrl = `${publicUrl.replace(/\/$/, '')}/telegram/webhook`;
     await bot.api.setWebhook(
