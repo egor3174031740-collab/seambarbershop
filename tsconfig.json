@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"skipLibCheck":true,"allowImportingTsExtensions":true,"noEmit":true},"include":["src/auth.ts","src/db-neon.ts","src/slots.ts","src/server.ts","src/bot.ts","src/index.ts","scripts/migrate-sqlite.ts"],"exclude":["src/db.ts","src/db.test.ts"]}
