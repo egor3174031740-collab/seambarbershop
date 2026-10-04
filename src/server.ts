@@ -17,7 +17,6 @@ function json(res: any, status: number, data: any) {
     'access-control-allow-origin': '*',
     'access-control-allow-headers': 'content-type, x-telegram-init-data',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    // Разрешаем Telegram открывать наше приложение внутри своего iframe
     'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
   });
   res.end(JSON.stringify(data));
@@ -42,7 +41,6 @@ async function handler(req: any, res: any) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const path = okPath(url.pathname);
 
-    // Обработка предварительных CORS-запросов (Preflight)
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'access-control-allow-origin': '*',
@@ -128,8 +126,6 @@ async function handler(req: any, res: any) {
         '.css': 'text/css; charset=utf-8',
         '.json': 'application/json',
       };
-      
-      // Отдаем статические файлы со специальными заголовками встраивания для Telegram
       res.writeHead(200, { 
         'content-type': types[ext] || 'application/octet-stream',
         'access-control-allow-origin': '*',
@@ -149,18 +145,27 @@ async function handler(req: any, res: any) {
 
 if (!botToken) throw new Error('BOT_TOKEN is not set');
 
-await initDb();
-
 const publicUrl = process.env.WEB_APP_URL || process.env.RENDER_EXTERNAL_URL;
 if (!publicUrl) throw new Error('WEB_APP_URL or RENDER_EXTERNAL_URL is not set');
 
 const server = createServer(handler);
+
+// ИЗМЕНЕНИЕ ТУТ: Сначала мгновенно открываем порт, чтобы Render сразу прогрузил страницу
 server.listen(port, '0.0.0.0', async () => {
   console.log(`Web app listening on ${port}`);
-  const webhookUrl = `${publicUrl.replace(/\/$/, '')}/telegram/webhook`;
-  await bot.api.setWebhook(
-    webhookUrl,
-    process.env.WEBHOOK_SECRET ? { secret_token: process.env.WEBHOOK_SECRET } : undefined,
-  );
-  console.log(`Telegram webhook configured: ${webhookUrl}`);
+  
+  try {
+    // Инициализируем БД и вебхуки асинхронно ПОСЛЕ запуска порта
+    await initDb();
+    console.log("Database initialized successfully");
+
+    const webhookUrl = `${publicUrl.replace(/\/$/, '')}/telegram/webhook`;
+    await bot.api.setWebhook(
+      webhookUrl,
+      process.env.WEBHOOK_SECRET ? { secret_token: process.env.WEBHOOK_SECRET } : undefined,
+    );
+    console.log(`Telegram webhook configured: ${webhookUrl}`);
+  } catch (initError) {
+    console.error("Initialization background error:", initError);
+  }
 });
