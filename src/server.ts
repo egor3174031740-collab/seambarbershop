@@ -29,7 +29,11 @@ async function body(req: any) {
 }
 
 function user(req: any) {
-  return verifyTelegramInitData(String(req.headers['x-telegram-init-data'] || ''), botToken);
+  const initData = req.headers['x-telegram-init-data'];
+  if (!initData) {
+    throw new Error('missing_init_data');
+  }
+  return verifyTelegramInitData(String(initData), botToken);
 }
 
 function okPath(p: string) {
@@ -87,7 +91,13 @@ async function handler(req: any, res: any) {
         return json(res, 200, { slots: await slotsFor(masterId, date, s.duration) });
       }
 
-      const u = user(req);
+      // Безопасный перехват ошибок авторизации ТГ для API-путей
+      let u;
+      try {
+        u = user(req);
+      } catch (authError: any) {
+        return json(res, 401, { error: authError.message || 'unauthorized' });
+      }
 
       if (req.method === 'GET' && path === '/api/bookings') {
         return json(res, 200, { bookings: await myBookings(u.id) });
@@ -118,28 +128,36 @@ async function handler(req: any, res: any) {
     if (req.method === 'GET') {
       const file = path === '/' ? '/index.html' : path;
       const full = join(root, file.replace(/^\//, ''));
-      const data = await readFile(full);
-      const ext = extname(full);
-      const types: Record<string, string> = {
-        '.html': 'text/html; charset=utf-8',
-        '.js': 'text/javascript; charset=utf-8',
-        '.css': 'text/css; charset=utf-8',
-        '.json': 'application/json',
-      };
-      res.writeHead(200, { 
-        'content-type': types[ext] || 'application/octet-stream',
-        'access-control-allow-origin': '*',
-        'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
-      });
-      res.end(data);
-      return;
+      
+      try {
+        const data = await readFile(full);
+        const ext = extname(full);
+        const types: Record<string, string> = {
+          '.html': 'text/html; charset=utf-8',
+          '.js': 'text/javascript; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.json': 'application/json',
+          '.ico': 'image/x-icon',
+        };
+        res.writeHead(200, { 
+          'content-type': types[ext] || 'application/octet-stream',
+          'access-control-allow-origin': '*',
+          'content-security-policy': "frame-ancestors 'self' https://t.me https://telegram.org https://*.tg.dev telegram://*;",
+        });
+        res.end(data);
+        return;
+      } catch (fileError: any) {
+        // Если файла нет (например, favicon.ico), отдаем аккуратный 404 и не валим сервер
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Not Found');
+        return;
+      }
     }
 
     json(res, 405, { error: 'method_not_allowed' });
   } catch (e: any) {
-    console.error(e);
-    const status = e.message?.includes('init_data') || e.message === 'missing_user' ? 401 : 500;
-    json(res, status, { error: e.message || 'server_error' });
+    console.error("Глобальная ошибка сервера:", e);
+    json(res, 500, { error: 'server_error' });
   }
 }
 
@@ -149,13 +167,10 @@ const publicUrl = process.env.WEB_APP_URL || process.env.RENDER_EXTERNAL_URL;
 if (!publicUrl) throw new Error('WEB_APP_URL or RENDER_EXTERNAL_URL is not set');
 
 const server = createServer(handler);
-
-// ИЗМЕНЕНИЕ ТУТ: Сначала мгновенно открываем порт, чтобы Render сразу прогрузил страницу
 server.listen(port, '0.0.0.0', async () => {
   console.log(`Web app listening on ${port}`);
   
   try {
-    // Инициализируем БД и вебхуки асинхронно ПОСЛЕ запуска порта
     await initDb();
     console.log("Database initialized successfully");
 
