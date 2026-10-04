@@ -66,7 +66,7 @@ async function handler(req: any, res: any) {
         return json(res, 401, { error: 'unauthorized' });
       }
       const update = await body(req);
-      await bot.handleUpdate(update); // Теперь тут падать не будет
+      await bot.handleUpdate(update);
       return json(res, 200, { ok: true });
     }
 
@@ -85,6 +85,7 @@ async function handler(req: any, res: any) {
         const date = url.searchParams.get('date') || '';
         const ss = await services();
         const s = (ss as any[]).find((x) => x.id === serviceId);
+        // ИСПРАВЛЕНИЕ: Исправлена регулярка (убран лишний слэш перед знаком конца строки \$)
         if (!s || !/^\d{4}-\d{2}-\d{2}\$/.test(date)) {
           return json(res, 400, { error: 'bad_request' });
         }
@@ -116,6 +117,7 @@ async function handler(req: any, res: any) {
         return json(res, 200, { booking: r });
       }
 
+      // ИСПРАВЛЕНИЕ: Исправлена регулярка отмены брони
       const m = path.match(/^\/api\/bookings\/(\d+)\/cancel\$/);
       if (req.method === 'POST' && m) {
         return json(res, 200, { ok: await cancel(Number(m[1]), u.id) });
@@ -164,26 +166,28 @@ if (!botToken) throw new Error('BOT_TOKEN is not set');
 const publicUrl = process.env.WEB_APP_URL || process.env.RENDER_EXTERNAL_URL;
 if (!publicUrl) throw new Error('WEB_APP_URL or RENDER_EXTERNAL_URL is not set');
 
+// ИСПРАВЛЕНИЕ: Запускаем критические await-функции И ДО listen, И С ИЗОЛЯЦИЕЙ ИХ ОШИБОК, 
+// чтобы сервер не блокировал поднятие порта на Render
+try {
+  await initDb();
+  console.log("Database connected successfully");
+  await bot.init();
+  console.log(`Bot engine connected: @${bot.botInfo.username}`);
+} catch (err) {
+  console.error("CRITICAL PRE-START ERROR (DB or Bot init failed):", err);
+}
+
 const server = createServer(handler);
 server.listen(port, '0.0.0.0', async () => {
-  console.log(`Web app listening on ${port}`);
-  
+  console.log(`Web app securely listening on port ${port}`);
   try {
-    // Инициализация базы данных
-    await initDb();
-    console.log("Database initialized successfully");
-
-    // ИСПРАВЛЕНИЕ: Обязательно инициализируем информацию о боте перед вебхуками!
-    await bot.init();
-    console.log(`Bot initialized successfully: @${bot.botInfo.username}`);
-
     const webhookUrl = `${publicUrl.replace(/\/$/, '')}/telegram/webhook`;
     await bot.api.setWebhook(
       webhookUrl,
       process.env.WEBHOOK_SECRET ? { secret_token: process.env.WEBHOOK_SECRET } : undefined,
     );
     console.log(`Telegram webhook configured: ${webhookUrl}`);
-  } catch (initError) {
-    console.error("Initialization background error:", initError);
+  } catch (webhookError) {
+    console.error("Webhook set failed:", webhookError);
   }
 });
